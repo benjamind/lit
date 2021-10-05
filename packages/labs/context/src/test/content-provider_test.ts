@@ -6,6 +6,8 @@
 
 import {LitElement, html, TemplateResult} from 'lit';
 import {property} from 'lit/decorators/property.js';
+import {state} from 'lit/decorators/state.js';
+import {cache} from 'lit/directives/cache.js';
 
 import {ContextProvider, createContext} from '../lit-context';
 import {assert} from '@esm-bundle/chai';
@@ -133,4 +135,119 @@ suite('context-provider', () => {
     assert.strictEqual(consumer.value, 500);
     assert.strictEqual(consumer2.value, 1000); // one-time consumer still has old value
   });
+});
+
+
+/**
+ * Say we have many components that has disperse data that would come from
+ * many backends.
+ * The "discriminant" here is known in advance, but the rest isn't.
+ */
+interface IContextWithDiscriminant {
+  discriminant: string
+  firstName: string
+  lastName: string
+  age: number
+}
+
+const withDiscriminantContext = createContext<IContextWithDiscriminant>('with-discriminant');
+
+class WithDiscriminantProvider extends LitElement {
+  private provider = new ContextProvider(this, withDiscriminantContext);
+
+  public setValue(value: IContextWithDiscriminant) {
+    this.provider.setValue(value);
+  }
+}
+
+class WithDiscriminantContextConsumer extends LitElement {
+  @state()
+  public age = 0;
+
+  @state()
+  public firstName = '';
+
+  @state()
+  public lastName = '';
+
+  @property({type: String, attribute: 'data-discriminant-id'})
+  public readonly discriminant: string = ''
+
+  public constructor() {
+    super();
+    new ContextConsumer(
+      this,
+      withDiscriminantContext,
+      this.onCallback,
+      true // allow multiple values
+    );
+  }
+
+  private onCallback = (value: IContextWithDiscriminant) => {
+    const { discriminant = '', ...rest  } = value ?? {}
+    // Use in payload "discriminant" property (name not important)
+    // to help re-use same context object, yet target a destination
+    if (this.discriminant === discriminant) {
+      const { firstName = '', lastName = '', age = 0 } = rest ?? {}
+      this.firstName = firstName;
+      this.lastName = lastName;
+      this.age = age;
+    }
+  }
+
+  protected render(): TemplateResult {
+    const isNoLongerEmpty = ['firstName', 'lastName'].filter(k  => Reflect.get(this, k) !== '').length >= 2
+    return html`Hi, ${cache(isNoLongerEmpty ?
+      html`my name is <span id="firstName">${this.firstName}</span> <span id="lastName">${this.lastName}</span>, and I am <span id="age">${this.age}</span>` :
+      html`sir`)}`;
+  }
+}
+
+customElements.define('with-discriminant-context-consumer', WithDiscriminantContextConsumer);
+customElements.define('with-discriminant-provider', WithDiscriminantProvider);
+
+suite('context-provider when many consumer different identities', () => {
+  let provider: WithDiscriminantProvider;
+  let consumers: NodeListOf<WithDiscriminantContextConsumer>;
+
+  setup(async () => {
+    const container = document.createElement('div');
+    container.innerHTML = `
+      <with-discriminant-provider>
+        <with-discriminant-context-consumer data-discriminant-id="alice"></with-discriminant-context-consumer>
+        <with-discriminant-context-consumer data-discriminant-id="bob"></with-discriminant-context-consumer>
+      </with-discriminant-provider>
+    `;
+    document.body.appendChild(container);
+
+    provider = container.querySelector(
+      'with-discriminant-provider'
+    ) as WithDiscriminantProvider;
+    consumers = provider.querySelectorAll(
+      'with-discriminant-context-consumer'
+    ) as NodeListOf<WithDiscriminantContextConsumer>;
+    assert.isDefined(consumers);
+    assert.lengthOf(consumers, 2);
+    assert.isDefined(provider);
+  });
+
+  test(`alpha`, async () => {
+    assert.strictEqual(consumers[0].firstName, '')
+    assert.strictEqual(consumers[1].firstName, '')
+    await consumers[1].updateComplete
+    assert.equal(consumers[1].shadowRoot!.textContent, 'Hi, sir');
+  })
+
+  test(`bravo`, async () => {
+    // Database data pulling, things happening, aggregating data.
+    provider.setValue({ discriminant: 'alice', firstName: 'Alice', lastName: 'Carroll', age: 33 })
+    provider.setValue({ discriminant: 'bob', firstName: 'Bob', lastName: 'Doe', age: 33 })
+    const [alice, bob] = consumers
+    assert.strictEqual(alice.firstName, 'Alice')
+    assert.strictEqual(alice.lastName, 'Carroll')
+    assert.strictEqual(bob.firstName, 'Bob')
+    assert.strictEqual(bob.lastName, 'Doe')
+    await alice.updateComplete
+    assert.equal(alice.shadowRoot!.textContent, 'Hi, my name is Alice Carroll, and I am 33');
+  })
 });
