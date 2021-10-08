@@ -9,7 +9,7 @@ import {property} from 'lit/decorators/property.js';
 import {state} from 'lit/decorators/state.js';
 import {cache} from 'lit/directives/cache.js';
 
-import {ContextProvider, createContext} from '../lit-context';
+import {ContextProvider, createContext, ContextCallback} from '../lit-context';
 import {assert} from '@esm-bundle/chai';
 import {ContextConsumer} from '../lib/controllers/context-consumer.js';
 
@@ -141,26 +141,26 @@ suite('context-provider', () => {
 /**
  * Say we have many components that has disperse data that would come from
  * many backends.
- * The "discriminant" here is known in advance, but the rest isn't.
+ * The "userId" field can be used to tell which component it is targeted for.
+ * Sometimes, we already have list of "userId"s, but miss the rest of the data.
  */
-interface IContextWithDiscriminant {
-  discriminant: string
+interface IUserInfoContext {
+  userId: string
   firstName: string
   lastName: string
   age: number
 }
 
-const withDiscriminantContext = createContext<IContextWithDiscriminant>('with-discriminant');
+const userInfoContext = createContext<IUserInfoContext>('user-info');
 
-class WithDiscriminantProvider extends LitElement {
-  private provider = new ContextProvider(this, withDiscriminantContext);
-
-  public setValue(value: IContextWithDiscriminant) {
+class UserInfoContextProvider extends LitElement {
+  private provider = new ContextProvider(this, userInfoContext);
+  public setValue(value: IUserInfoContext) {
     this.provider.setValue(value);
   }
 }
 
-class WithDiscriminantContextConsumer extends LitElement {
+class UserInfoBadgeContextConsumer extends LitElement {
   @state()
   public age = 0;
 
@@ -170,24 +170,24 @@ class WithDiscriminantContextConsumer extends LitElement {
   @state()
   public lastName = '';
 
-  @property({type: String, attribute: 'data-discriminant-id'})
-  public readonly discriminant: string = ''
+  @property({type: String, attribute: 'data-user-id'})
+  public readonly userId: string = ''
 
   public constructor() {
     super();
     new ContextConsumer(
       this,
-      withDiscriminantContext,
+      userInfoContext,
       this.onCallback,
       true // allow multiple values
     );
   }
 
-  private onCallback = (value: IContextWithDiscriminant) => {
-    const { discriminant = '', ...rest  } = value ?? {}
-    // Use in payload "discriminant" property (name not important)
+  private onCallback: ContextCallback<IUserInfoContext> = (value: IUserInfoContext) => {
+    const { userId = '', ...rest  } = value ?? {}
+    // Use in payload "userId" property (name not important)
     // to help re-use same context object, yet target a destination
-    if (this.discriminant === discriminant) {
+    if (this.userId === userId) {
       const { firstName = '', lastName = '', age = 0 } = rest ?? {}
       this.firstName = firstName;
       this.lastName = lastName;
@@ -203,29 +203,36 @@ class WithDiscriminantContextConsumer extends LitElement {
   }
 }
 
-customElements.define('with-discriminant-context-consumer', WithDiscriminantContextConsumer);
-customElements.define('with-discriminant-provider', WithDiscriminantProvider);
+customElements.define('user-info-badge-context-consumer', UserInfoBadgeContextConsumer);
+customElements.define('user-info-context-provider', UserInfoContextProvider);
 
 suite('context-provider when many consumer different identities', () => {
-  let provider: WithDiscriminantProvider;
-  let consumers: NodeListOf<WithDiscriminantContextConsumer>;
+  let provider: UserInfoContextProvider;
+  let consumers: NodeListOf<UserInfoBadgeContextConsumer>;
+
+  const aliceUserId = 'alice'
+  const aliceUserInfo: IUserInfoContext = Object.freeze({ userId: aliceUserId, firstName: 'Alice', lastName: 'Carroll', age: 41 })
+
+  const bobUserId = 'bob'
+  const bobUserInfo: IUserInfoContext = Object.freeze({ userId: bobUserId, firstName: 'Bob', lastName: 'Dylan', age: 40 })
 
   setup(async () => {
     const container = document.createElement('div');
     container.innerHTML = `
-      <with-discriminant-provider>
-        <with-discriminant-context-consumer data-discriminant-id="alice"></with-discriminant-context-consumer>
-        <with-discriminant-context-consumer data-discriminant-id="bob"></with-discriminant-context-consumer>
-      </with-discriminant-provider>
+      <user-info-context-provider>
+        <user-info-badge-context-consumer data-user-id="alice"></user-info-badge-context-consumer>
+        <!-- many more ... -->
+        <user-info-badge-context-consumer data-user-id="bob"></user-info-badge-context-consumer>
+      </user-info-context-provider>
     `;
     document.body.appendChild(container);
 
     provider = container.querySelector(
-      'with-discriminant-provider'
-    ) as WithDiscriminantProvider;
+      'user-info-context-provider'
+    ) as UserInfoContextProvider;
     consumers = provider.querySelectorAll(
-      'with-discriminant-context-consumer'
-    ) as NodeListOf<WithDiscriminantContextConsumer>;
+      'user-info-badge-context-consumer'
+    ) as NodeListOf<UserInfoBadgeContextConsumer>;
     assert.isDefined(consumers);
     assert.lengthOf(consumers, 2);
     assert.isDefined(provider);
@@ -240,14 +247,14 @@ suite('context-provider when many consumer different identities', () => {
 
   test(`bravo`, async () => {
     // Database data pulling, things happening, aggregating data.
-    provider.setValue({ discriminant: 'alice', firstName: 'Alice', lastName: 'Carroll', age: 33 })
-    provider.setValue({ discriminant: 'bob', firstName: 'Bob', lastName: 'Doe', age: 33 })
+    provider.setValue({ ...aliceUserInfo })
+    provider.setValue({ ...bobUserInfo })
     const [alice, bob] = consumers
     assert.strictEqual(alice.firstName, 'Alice')
     assert.strictEqual(alice.lastName, 'Carroll')
     assert.strictEqual(bob.firstName, 'Bob')
-    assert.strictEqual(bob.lastName, 'Doe')
+    assert.strictEqual(bob.lastName, 'Dylan')
     await alice.updateComplete
-    assert.equal(alice.shadowRoot!.textContent, 'Hi, my name is Alice Carroll, and I am 33');
+    assert.equal(alice.shadowRoot!.textContent, 'Hi, my name is Alice Carroll, and I am 41');
   })
 });
