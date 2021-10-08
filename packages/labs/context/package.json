@@ -10,24 +10,25 @@
     "directory": "packages/labs/context"
   },
   "type": "module",
-  "main": "index.js",
-  "module": "index.js",
-  "typings": "index.d.ts",
+  "main": "lit-context.js",
+  "module": "lit-context.js",
+  "typings": "lit-context.d.ts",
   "directories": {
     "test": "test"
   },
   "exports": {
     ".": {
-      "development": "./development/index.js",
-      "default": "./index.js"
+      "development": "./development/lit-context.js",
+      "default": "./lit-context.js"
     }
   },
   "files": [
+    "/lib/",
     "/src/",
     "!/src/test/",
     "/development/",
     "!/development/test/",
-    "/context.{d.ts,d.ts.map,js,js.map}"
+    "/lit-context.{d.ts,d.ts.map,js,js.map}"
   ],
   "scripts": {
     "build": "npm run clean && npm run build:ts --build && rollup -c",
